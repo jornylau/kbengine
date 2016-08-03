@@ -144,7 +144,7 @@ public:
 	/**
 		创建一个新的space 
 	*/
-	void createInNewSpace(Base* base, PyObject* cell);
+	void createInNewSpace(Base* base, PyObject* pyCellappIndex);
 
 	/**
 		恢复一个space 
@@ -299,6 +299,7 @@ public:
 		client更新数据
 	*/
 	void onUpdateDataFromClient(Network::Channel* pChannel, KBEngine::MemoryStream& s);
+	void onUpdateDataFromClientForControlledEntity(Network::Channel* pChannel, KBEngine::MemoryStream& s);
 
 
 	/** 网络接口
@@ -335,22 +336,22 @@ public:
 	/**
 		增加proxices计数
 	*/
-	void incProxicesCount(){ ++numProxices_; }
+	void incProxicesCount() { ++numProxices_; }
 
 	/**
 		减少proxices计数
 	*/
-	void decProxicesCount(){ --numProxices_; }
+	void decProxicesCount() { --numProxices_; }
 
 	/**
 		获得proxices计数
 	*/
-	int32 numProxices() const{ return numProxices_; }
+	int32 numProxices() const { return numProxices_; }
 
 	/**
 		获得numClients计数
 	*/
-	int32 numClients(){ return this->networkInterface().numExtChannels(); }
+	int32 numClients() { return this->networkInterface().numExtChannels(); }
 	
 	/** 
 		请求充值

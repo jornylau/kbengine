@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import socket, select, io
+import socket, select
 import sys
 import os
 import struct
@@ -40,7 +40,8 @@ class LoggerWatcher:
 		"""
 		"""
 		self.socket = None
-		self.msgBuffer = b""
+		
+		self.msgBuffer = "".encode()
 
 	def connect( self, ip, port ):
 		"""
@@ -64,12 +65,12 @@ class LoggerWatcher:
 		"""
 		向logger注册
 		"""
-		msg = io.BytesIO()
+		msg = Define.BytesIO()
 		msg.write( struct.pack("=H", Logger_registerLogWatcher ) ) # command
 		msg.write( struct.pack("=H", struct.calcsize("=iIiiccB" + "i" * Define.COMPONENT_END_TYPE + "BB") ) ) # package len
 		msg.write( struct.pack("=i", uid ) )
 		msg.write( struct.pack("=I", 0xffffffff) ) # logtypes filter
-		msg.write( struct.pack("=iicc", 0, 0, b"\0", b"\0" ) ) # globalOrder, groupOrder, date, keyStr
+		msg.write( struct.pack("=iicc", 0, 0, "\0".encode(), "\0".encode() ) ) # globalOrder, groupOrder, date, keyStr
 		msg.write( struct.pack("=B", Define.COMPONENT_END_TYPE ) ) # component type filter count
 		msg.write( struct.pack("=" + "i" * Define.COMPONENT_END_TYPE, *list( range( Define.COMPONENT_END_TYPE ) ))) # component type filter
 		msg.write( struct.pack("=BB", 0, 1 ) ) # isfind, first
@@ -79,7 +80,7 @@ class LoggerWatcher:
 		"""
 		从logger取消注册
 		"""
-		msg = io.BytesIO()
+		msg = Define.BytesIO()
 		msg.write( struct.pack("=H", Logger_deregisterLogWatcher ) ) # command
 		msg.write( struct.pack("=H", 0) ) # package len
 		self.socket.sendall( msg.getvalue() )
@@ -88,7 +89,7 @@ class LoggerWatcher:
 		"""
 		发送心跳包
 		"""
-		msg = io.BytesIO()
+		msg = Define.BytesIO()
 		msg.write( struct.pack("=H", Logger_onAppActiveTick ) ) # command
 		msg.write( struct.pack("=iQ", Define.WATCHER_TYPE, 0) ) # componentType, componentID
 		self.socket.sendall( msg.getvalue() )
@@ -104,12 +105,12 @@ class LoggerWatcher:
 		if not isinstance(logStr, bytes):
 			logStr = logStr.encode( "utf-8" )
 		
-		if logStr[-1] != b'\n':
-			logStr += b'\n'
-		
+		if logStr[-1] != '\n'.encode():
+			logStr += '\n'.encode()
+				
 		logSize = len( logStr )
 		
-		msg = io.BytesIO()
+		msg = Define.BytesIO()
 		msg.write( struct.pack("=H", Logger_writeLog ) ) # command
 		msg.write( struct.pack("=H", struct.calcsize("=iIiQiiqII") + logSize ) ) # package len
 		msg.write( struct.pack("=i", uid ) )

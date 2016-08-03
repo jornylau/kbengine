@@ -28,6 +28,7 @@ along with KBEngine.  If not, see <http://www.gnu.org/licenses/>.
 #include "backuper.h"
 #include "initprogress_handler.h"
 #include "restore_entity_handler.h"
+#include "base_messages_forward_handler.h"
 #include "forward_message_over_handler.h"
 #include "sync_entitystreamtemplate_handler.h"
 #include "common/timestamp.h"
@@ -66,55 +67,93 @@ PyObject* createCellDataDictFromPersistentStream(MemoryStream& s, const char* en
 	ScriptDefModule::PROPERTYDESCRIPTION_MAP& propertyDescrs = pScriptModule->getPersistentPropertyDescriptions();
 	ScriptDefModule::PROPERTYDESCRIPTION_MAP::const_iterator iter = propertyDescrs.begin();
 
-	for(; iter != propertyDescrs.end(); ++iter)
+	try
 	{
-		PropertyDescription* propertyDescription = iter->second;
-
-		const char* attrname = propertyDescription->getName();
-
-		PyObject* pyVal = propertyDescription->createFromPersistentStream(&s);
-
-		if(!propertyDescription->getDataType()->isSameType(pyVal))
+		for (; iter != propertyDescrs.end(); ++iter)
 		{
-			if(pyVal)
-			{
-				Py_DECREF(pyVal);
-			}
-			
-			ERROR_MSG(fmt::format("Baseapp::createCellDataDictFromPersistentStream: {}.{} is error, set to default!\n", 
-				entityType, attrname));
+			PropertyDescription* propertyDescription = iter->second;
 
-			pyVal = propertyDescription->getDataType()->parseDefaultStr("");
+			const char* attrname = propertyDescription->getName();
+
+			PyObject* pyVal = propertyDescription->createFromPersistentStream(&s);
+
+			if (!propertyDescription->getDataType()->isSameType(pyVal))
+			{
+				if (pyVal)
+				{
+					Py_DECREF(pyVal);
+				}
+
+				ERROR_MSG(fmt::format("Baseapp::createCellDataDictFromPersistentStream: {}.{} error, set to default!\n",
+					entityType, attrname));
+
+				pyVal = propertyDescription->getDataType()->parseDefaultStr("");
+			}
+
+			PyDict_SetItemString(pyDict, attrname, pyVal);
+			Py_DECREF(pyVal);
 		}
 
-		PyDict_SetItemString(pyDict, attrname, pyVal);
-		Py_DECREF(pyVal);
-	}
-	
-	if(pScriptModule->hasCell())
-	{
-		ArraySize size = 0;
+		if (pScriptModule->hasCell())
+		{
+			ArraySize size = 0;
 #ifdef CLIENT_NO_FLOAT
-		int32 v1, v2, v3;
-		int32 vv1, vv2, vv3;
+			int32 v1, v2, v3;
+			int32 vv1, vv2, vv3;
 #else
-		float v1, v2, v3;
-		float vv1, vv2, vv3;
+			float v1, v2, v3;
+			float vv1, vv2, vv3;
 #endif
-		
-		s >> size >> v1 >> v2 >> v3;
-		s >> size >> vv1 >> vv2 >> vv3;
+
+			s >> size >> v1 >> v2 >> v3;
+			s >> size >> vv1 >> vv2 >> vv3;
+
+			PyObject* position = PyTuple_New(3);
+			PyTuple_SET_ITEM(position, 0, PyFloat_FromDouble((float)v1));
+			PyTuple_SET_ITEM(position, 1, PyFloat_FromDouble((float)v2));
+			PyTuple_SET_ITEM(position, 2, PyFloat_FromDouble((float)v3));
+
+			PyObject* direction = PyTuple_New(3);
+			PyTuple_SET_ITEM(direction, 0, PyFloat_FromDouble((float)vv1));
+			PyTuple_SET_ITEM(direction, 1, PyFloat_FromDouble((float)vv2));
+			PyTuple_SET_ITEM(direction, 2, PyFloat_FromDouble((float)vv3));
+
+			PyDict_SetItemString(pyDict, "position", position);
+			PyDict_SetItemString(pyDict, "direction", direction);
+
+			Py_DECREF(position);
+			Py_DECREF(direction);
+		}
+	}
+	catch (MemoryStreamException & e)
+	{
+		e.PrintPosError();
+
+		for (; iter != propertyDescrs.end(); ++iter)
+		{
+			PropertyDescription* propertyDescription = iter->second;
+
+			const char* attrname = propertyDescription->getName();
+
+			ERROR_MSG(fmt::format("Baseapp::createCellDataDictFromPersistentStream: set({}.{}) to default!\n",
+				entityType, attrname));
+
+			PyObject* pyVal = propertyDescription->getDataType()->parseDefaultStr("");
+
+			PyDict_SetItemString(pyDict, attrname, pyVal);
+			Py_DECREF(pyVal);
+		}
 
 		PyObject* position = PyTuple_New(3);
-		PyTuple_SET_ITEM(position, 0, PyFloat_FromDouble((float)v1));
-		PyTuple_SET_ITEM(position, 1, PyFloat_FromDouble((float)v2));
-		PyTuple_SET_ITEM(position, 2, PyFloat_FromDouble((float)v3));
-		
+		PyTuple_SET_ITEM(position, 0, PyFloat_FromDouble(0.f));
+		PyTuple_SET_ITEM(position, 1, PyFloat_FromDouble(0.f));
+		PyTuple_SET_ITEM(position, 2, PyFloat_FromDouble(0.f));
+
 		PyObject* direction = PyTuple_New(3);
-		PyTuple_SET_ITEM(direction, 0, PyFloat_FromDouble((float)vv1));
-		PyTuple_SET_ITEM(direction, 1, PyFloat_FromDouble((float)vv2));
-		PyTuple_SET_ITEM(direction, 2, PyFloat_FromDouble((float)vv3));
-		
+		PyTuple_SET_ITEM(direction, 0, PyFloat_FromDouble(0.f));
+		PyTuple_SET_ITEM(direction, 1, PyFloat_FromDouble(0.f));
+		PyTuple_SET_ITEM(direction, 2, PyFloat_FromDouble(0.f));
+
 		PyDict_SetItemString(pyDict, "position", position);
 		PyDict_SetItemString(pyDict, "direction", direction);
 
@@ -389,7 +428,7 @@ void Baseapp::onUpdateLoad()
 	Network::Channel* pChannel = Components::getSingleton().getBaseappmgrChannel();
 	if(pChannel != NULL)
 	{
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		(*pBundle).newMessage(BaseappmgrInterface::updateBaseapp);
 		BaseappmgrInterface::updateBaseappArgs5::staticAddToBundle((*pBundle), 
 			componentID_, (ENTITY_ID)(pEntities_->getEntities().size() - numProxices()), (ENTITY_ID)numProxices(), getLoad(), flags_);
@@ -442,12 +481,14 @@ void Baseapp::handleGameTick()
 //-------------------------------------------------------------------------------------
 void Baseapp::handleBackup()
 {
+	AUTO_SCOPED_PROFILE("backup");
 	pBackuper_->tick();
 }
 
 //-------------------------------------------------------------------------------------
 void Baseapp::handleArchive()
 {
+	AUTO_SCOPED_PROFILE("archive");
 	pArchiver_->tick();
 }
 
@@ -508,6 +549,8 @@ void Baseapp::finalise()
 	pRestoreEntityHandlers_.clear();
 	loopCheckTimerHandle_.cancel();
 	pResmgrTimerHandle_.cancel();
+	forward_messagebuffer_.clear();
+
 	EntityApp<Base>::finalise();
 }
 
@@ -681,7 +724,7 @@ void Baseapp::onGetEntityAppFromDbmgr(Network::Channel* pChannel, int32 uid, std
 					((int32)globalorderID), 
 					((int32)grouporderID)));
 
-			Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+			Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 			(*pBundle).newMessage(DbmgrInterface::reqKillServer);
 			(*pBundle) << g_componentID << g_componentType << KBEngine::getUsername() << KBEngine::getUserUID() << "Duplicate app-id.";
 			pChannel->send(pBundle);
@@ -721,7 +764,7 @@ void Baseapp::onGetEntityAppFromDbmgr(Network::Channel* pChannel, int32 uid, std
 	int ret = Components::getSingleton().connectComponent(tcomponentType, uid, componentID);
 	KBE_ASSERT(ret != -1);
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 	switch(tcomponentType)
 	{
@@ -773,7 +816,7 @@ PyObject* Baseapp::__py_createBase(PyObject* self, PyObject* args)
 
 	if(entityType == NULL || ret == -1)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBase: args is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBase: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -808,7 +851,7 @@ PyObject* Baseapp::__py_createBaseAnywhere(PyObject* self, PyObject* args)
 
 	if(entityType == NULL || ret == -1)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhere: args is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhere: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -861,7 +904,7 @@ PyObject* Baseapp::__py_createBaseFromDBID(PyObject* self, PyObject* args)
 
 	if (ret == -1)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::createBaseFromDBID: args is error!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::createBaseFromDBID: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -911,7 +954,7 @@ PyObject* Baseapp::__py_createBaseFromDBID(PyObject* self, PyObject* args)
 
 	if(entityType == NULL || strlen(entityType) <= 0 || ret == -1)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: args is error, entityType=%s!", 
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: args error, entityType=%s!", 
 			(entityType ? entityType : "NULL"));
 
 		PyErr_PrintEx(0);
@@ -924,7 +967,7 @@ PyObject* Baseapp::__py_createBaseFromDBID(PyObject* self, PyObject* args)
 
 	if(EntityDef::findScriptModule(entityType) == NULL)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: entityType is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: entityType error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -932,7 +975,7 @@ PyObject* Baseapp::__py_createBaseFromDBID(PyObject* self, PyObject* args)
 
 	if(dbid <= 0)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: dbid is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: dbid error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -942,7 +985,7 @@ PyObject* Baseapp::__py_createBaseFromDBID(PyObject* self, PyObject* args)
 	{
 		pyCallback = NULL;
 
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: callback is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseFromDBID: callback error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -991,7 +1034,7 @@ void Baseapp::createBaseFromDBID(const char* entityType, DBID dbid, PyObject* py
 		callbackID = callbackMgr().save(pyCallback);
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	pBundle->newMessage(DbmgrInterface::queryEntity);
 
 	ENTITY_ID entityID = idClient_.alloc();
@@ -1193,7 +1236,7 @@ PyObject* Baseapp::__py_createBaseAnywhereFromDBID(PyObject* self, PyObject* arg
 
 	if (ret == -1)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::createBaseAnywhereFromDBID: args is error!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::createBaseAnywhereFromDBID: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -1243,7 +1286,7 @@ PyObject* Baseapp::__py_createBaseAnywhereFromDBID(PyObject* self, PyObject* arg
 
 	if(entityType == NULL || strlen(entityType) <= 0 || ret == -1)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: args is error, entityType=%s!", 
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: args error, entityType=%s!", 
 			(entityType ? entityType : "NULL"));
 
 		PyErr_PrintEx(0);
@@ -1256,7 +1299,7 @@ PyObject* Baseapp::__py_createBaseAnywhereFromDBID(PyObject* self, PyObject* arg
 
 	if(EntityDef::findScriptModule(entityType) == NULL)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: entityType is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: entityType error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -1264,7 +1307,7 @@ PyObject* Baseapp::__py_createBaseAnywhereFromDBID(PyObject* self, PyObject* arg
 
 	if(dbid <= 0)
 	{
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: dbid is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: dbid error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -1274,7 +1317,7 @@ PyObject* Baseapp::__py_createBaseAnywhereFromDBID(PyObject* self, PyObject* arg
 	{
 		pyCallback = NULL;
 
-		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: callback is error!");
+		PyErr_Format(PyExc_AssertionError, "Baseapp::createBaseAnywhereFromDBID: callback error!");
 		PyErr_PrintEx(0);
 		free(entityType);
 		return NULL;
@@ -1323,7 +1366,7 @@ void Baseapp::createBaseAnywhereFromDBID(const char* entityType, DBID dbid, PyOb
 		callbackID = callbackMgr().save(pyCallback);
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	pBundle->newMessage(DbmgrInterface::queryEntity);
 
 	ENTITY_ID entityID = idClient_.alloc();
@@ -1444,17 +1487,17 @@ void Baseapp::onCreateBaseAnywhereFromDBIDCallback(Network::Channel* pChannel, K
 
 	s.rpos((int)currpos);
 
-	MemoryStream* stream = MemoryStream::ObjPool().createObject();
+	MemoryStream* stream = MemoryStream::createPoolObject();
 	(*stream) << g_componentID;
 	stream->append(s);
 	s.done();
 
 	// 通知baseappmgr在其他baseapp上创建entity
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	pBundle->newMessage(BaseappmgrInterface::reqCreateBaseAnywhereFromDBID);
 	pBundle->append((*stream));
 	pBaseappmgrChannel->send(pBundle);
-	MemoryStream::ObjPool().reclaimObject(stream);
+	MemoryStream::reclaimPoolObject(stream);
 }
 
 //-------------------------------------------------------------------------------------
@@ -1511,7 +1554,7 @@ void Baseapp::createBaseAnywhereFromDBIDOtherBaseapp(Network::Channel* pChannel,
 	else
 	{
 		// 通知baseapp, 创建好了
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		pBundle->newMessage(BaseappInterface::onCreateBaseAnywhereFromDBIDOtherBaseappCallback);
 
 
@@ -1587,27 +1630,45 @@ void Baseapp::onCreateBaseAnywhereFromDBIDOtherBaseappCallback(Network::Channel*
 }
 
 //-------------------------------------------------------------------------------------
-void Baseapp::createInNewSpace(Base* base, PyObject* cell)
+void Baseapp::createInNewSpace(Base* base, PyObject* pyCellappIndex)
 {
+	ScriptDefModule* pScriptModule = base->pScriptModule();
+	if (!pScriptModule || !pScriptModule->hasCell())
+	{
+		ERROR_MSG(fmt::format("{}::createInNewSpace: cannot find the cellapp script({})!\n",
+			pScriptModule->getName(), pScriptModule->getName()));
+
+		return;
+	}
+
+	// 如果cellappIndex为0，则代表不强制指定cellapp
+	// 非0的情况下，选择的cellapp可以用1,2,3,4来代替
+	// 假如预期有4个cellapp， 假如不够4个， 只有3个， 那么4代表1
+	uint32 cellappIndex = 0;
+
+	if (PyLong_Check(pyCellappIndex))
+		cellappIndex = (uint32)PyLong_AsUnsignedLong(pyCellappIndex);
+
 	ENTITY_ID id = base->id();
 	std::string entityType = base->ob_type->tp_name;
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 	(*pBundle).newMessage(CellappmgrInterface::reqCreateInNewSpace);
 
 	(*pBundle) << entityType;
 	(*pBundle) << id;
+	(*pBundle) << cellappIndex;
 	(*pBundle) << componentID_;
 
 	EntityMailbox* clientMailbox = base->clientMailbox();
 	bool hasClient = (clientMailbox != NULL);
 	(*pBundle) << hasClient;
 
-	MemoryStream* s = MemoryStream::ObjPool().createObject();
+	MemoryStream* s = MemoryStream::createPoolObject();
 	base->addCellDataToStream(ED_FLAG_ALL, s);
 	(*pBundle).append(*s);
-	MemoryStream::ObjPool().reclaimObject(s);
+	MemoryStream::reclaimPoolObject(s);
 	
 	Components::ComponentInfos* pComponents = Components::getSingleton().getCellappmgr();
 	if(pComponents)
@@ -1619,13 +1680,13 @@ void Baseapp::createInNewSpace(Base* base, PyObject* cell)
 		else
 		{
 			ERROR_MSG("Baseapp::createInNewSpace: cellappmgr channel is NULL.\n");
-			Network::Bundle::ObjPool().reclaimObject(pBundle);
+			Network::Bundle::reclaimPoolObject(pBundle);
 		}
 		
 		return;
 	}
 
-	Network::Bundle::ObjPool().reclaimObject(pBundle);
+	Network::Bundle::reclaimPoolObject(pBundle);
 	ERROR_MSG("Baseapp::createInNewSpace: not found cellappmgr.\n");
 }
 
@@ -1635,7 +1696,7 @@ void Baseapp::restoreSpaceInCell(Base* base)
 	ENTITY_ID id = base->id();
 	std::string entityType = base->ob_type->tp_name;
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 	(*pBundle).newMessage(CellappmgrInterface::reqRestoreSpaceInCell);
 
@@ -1648,10 +1709,10 @@ void Baseapp::restoreSpaceInCell(Base* base)
 	bool hasClient = (clientMailbox != NULL);
 	(*pBundle) << hasClient;
 
-	MemoryStream* s = MemoryStream::ObjPool().createObject();
+	MemoryStream* s = MemoryStream::createPoolObject();
 	base->addCellDataToStream(ED_FLAG_ALL, s);
 	(*pBundle).append(*s);
-	MemoryStream::ObjPool().reclaimObject(s);
+	MemoryStream::reclaimPoolObject(s);
 	
 	Components::ComponentInfos* pComponents = Components::getSingleton().getCellappmgr();
 	if(pComponents)
@@ -1663,13 +1724,13 @@ void Baseapp::restoreSpaceInCell(Base* base)
 		else
 		{
 			ERROR_MSG("Baseapp::restoreSpaceInCell: cellappmgr channel is NULL.\n");
-			Network::Bundle::ObjPool().reclaimObject(pBundle);
+			Network::Bundle::reclaimPoolObject(pBundle);
 		}
 		
 		return;
 	}
 	
-	Network::Bundle::ObjPool().reclaimObject(pBundle);
+	Network::Bundle::reclaimPoolObject(pBundle);
 	ERROR_MSG("Baseapp::restoreSpaceInCell: not found cellappmgr.\n");
 }
 
@@ -1684,7 +1745,7 @@ void Baseapp::createBaseAnywhere(const char* entityType, PyObject* params, PyObj
 		initDataLength = (uint32)strInitData.length();
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(BaseappmgrInterface::reqCreateBaseAnywhere);
 
 	(*pBundle) << entityType;
@@ -1712,13 +1773,13 @@ void Baseapp::createBaseAnywhere(const char* entityType, PyObject* params, PyObj
 		else
 		{
 			ERROR_MSG("Baseapp::createBaseAnywhere: baseappmgr channel is NULL.\n");
-			Network::Bundle::ObjPool().reclaimObject(pBundle);
+			Network::Bundle::reclaimPoolObject(pBundle);
 		}
 		
 		return;
 	}
 
-	Network::Bundle::ObjPool().reclaimObject(pBundle);
+	Network::Bundle::reclaimPoolObject(pBundle);
 	ERROR_MSG("Baseapp::createBaseAnywhere: not found baseappmgr.\n");
 }
 
@@ -1748,7 +1809,7 @@ void Baseapp::onCreateBaseAnywhere(Network::Channel* pChannel, MemoryStream& s)
 
 	if(base == NULL)
 	{
-		ERROR_MSG(fmt::format("Baseapp::onCreateBaseAnywhere: create is error! entityType={}, componentID={}, callbackID={}\n", 
+		ERROR_MSG(fmt::format("Baseapp::onCreateBaseAnywhere: create error! entityType={}, componentID={}, callbackID={}\n", 
 			entityType, componentID, callbackID));
 
 		return;
@@ -1760,7 +1821,7 @@ void Baseapp::onCreateBaseAnywhere(Network::Channel* pChannel, MemoryStream& s)
 		Components::ComponentInfos* cinfos = Components::getSingleton().findComponent(componentID);
 		if(cinfos == NULL || cinfos->pChannel == NULL)
 		{
-			Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+			Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 			ForwardItem* pFI = new ForwardItem();
 			pFI->pHandler = NULL;
 			pFI->pBundle = pBundle;
@@ -1778,7 +1839,7 @@ void Baseapp::onCreateBaseAnywhere(Network::Channel* pChannel, MemoryStream& s)
 		Network::Channel* lpChannel = cinfos->pChannel;
 
 		// 需要baseappmgr转发给目的baseapp
-		Network::Bundle* pForwardbundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pForwardbundle = Network::Bundle::createPoolObject();
 		(*pForwardbundle).newMessage(BaseappInterface::onCreateBaseAnywhereCallback);
 		(*pForwardbundle) << callbackID;
 		(*pForwardbundle) << entityType;
@@ -1818,7 +1879,7 @@ void Baseapp::_onCreateBaseAnywhereCallback(Network::Channel* pChannel, CALLBACK
 	if(callbackID == 0)
 	{
 		// 没有设定回调
-		//ERROR_MSG(fmt::format("Baseapp::_onCreateBaseAnywhereCallback: is error(callbackID == 0)! entityType={}, componentID={}\n", 
+		//ERROR_MSG(fmt::format("Baseapp::_onCreateBaseAnywhereCallback: error(callbackID == 0)! entityType={}, componentID={}\n", 
 		//	entityType, componentID));
 
 		return;
@@ -1914,7 +1975,7 @@ void Baseapp::createCellEntity(EntityMailboxAbstract* createToCellMailbox, Base*
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(CellappInterface::onCreateCellEntityFromBaseapp);
 
 	ENTITY_ID id = base->id();
@@ -1930,19 +1991,19 @@ void Baseapp::createCellEntity(EntityMailboxAbstract* createToCellMailbox, Base*
 	(*pBundle) << hasClient;
 	(*pBundle) << base->inRestore();
 
-	MemoryStream* s = MemoryStream::ObjPool().createObject();
+	MemoryStream* s = MemoryStream::createPoolObject();
 	base->addCellDataToStream(ED_FLAG_ALL, s);
 	(*pBundle).append(*s);
-	MemoryStream::ObjPool().reclaimObject(s);
+	MemoryStream::reclaimPoolObject(s);
 	
 	if(createToCellMailbox->getChannel() == NULL)
 	{
 		ERROR_MSG(fmt::format("Baseapp::createCellEntity: not found cellapp(createToCellMailbox:"
-			"componentID={}, entityID={}), create is error!\n",
+			"componentID={}, entityID={}), create error!\n",
 			createToCellMailbox->componentID(), createToCellMailbox->id()));
 
 		base->onCreateCellFailure();
-		Network::Bundle::ObjPool().reclaimObject(pBundle);
+		Network::Bundle::reclaimPoolObject(pBundle);
 		return;
 	}
 
@@ -1981,7 +2042,7 @@ void Baseapp::onEntityGetCell(Network::Channel* pChannel, ENTITY_ID id,
 	// 可能客户端在期间掉线了
 	if(base == NULL)
 	{
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 		(*pBundle).newMessage(CellappInterface::onDestroyCellEntityFromBaseapp);
 		(*pBundle) << id;
@@ -2025,7 +2086,7 @@ bool Baseapp::createClientProxies(Proxy* base, bool reload)
 	base->initClientBasePropertys();
 
 	// 让客户端知道已经创建了proxices, 并初始化一部分属性
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(ClientInterface::onCreatedProxies);
 	(*pBundle) << base->rndUUID();
 	(*pBundle) << base->id();
@@ -2063,7 +2124,7 @@ PyObject* Baseapp::__py_executeRawDatabaseCommand(PyObject* self, PyObject* args
 
 	if(ret == -1)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::executeRawDatabaseCommand: args is error!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::executeRawDatabaseCommand: args error!");
 		PyErr_PrintEx(0);
 		S_Return;
 	}
@@ -2096,7 +2157,7 @@ void Baseapp::executeRawDatabaseCommand(const char* datas, uint32 size, PyObject
 {
 	if(datas == NULL)
 	{
-		ERROR_MSG("KBEngine::executeRawDatabaseCommand: execute is error!\n");
+		ERROR_MSG("KBEngine::executeRawDatabaseCommand: execute error!\n");
 		return;
 	}
 
@@ -2119,7 +2180,7 @@ void Baseapp::executeRawDatabaseCommand(const char* datas, uint32 size, PyObject
 	//INFO_MSG(fmt::format("KBEngine::executeRawDatabaseCommand{}:{}.\n", 
 	//	(eid > 0 ? (fmt::format("(entityID={})", eid)) : ""), datas));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(DbmgrInterface::executeRawDatabaseCommand);
 	(*pBundle) << eid;
 	(*pBundle) << (uint16)dbInterfaceIndex;
@@ -2255,23 +2316,30 @@ PyObject* Baseapp::__py_charge(PyObject* self, PyObject* args)
 {
 	if(PyTuple_Size(args) != 4)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::charge: args != (ordersID, dbid, byteDatas[bytes|BLOB], pycallback)!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::charge: args != (ordersID, dbid, byteDatas[bytes], pycallback)!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
 
 	PyObject* pyDatas = NULL, *pycallback = NULL;
-	char* pChargeID;
+	char* pChargeID = NULL;
 	DBID dbid;
 
 	if(PyArg_ParseTuple(args, "s|K|O|O", &pChargeID, &dbid, &pyDatas, &pycallback) == -1)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::charge: args is error!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::charge: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
 	
-	if(pChargeID == NULL || strlen(pChargeID) <= 0)
+	if (pChargeID == NULL)
+	{
+		PyErr_Format(PyExc_TypeError, "KBEngine::charge: ordersID not is string!");
+		PyErr_PrintEx(0);
+		return NULL;
+	}
+
+	if(strlen(pChargeID) <= 0)
 	{
 		PyErr_Format(PyExc_TypeError, "KBEngine::charge: ordersID is NULL!");
 		PyErr_PrintEx(0);
@@ -2285,9 +2353,9 @@ PyObject* Baseapp::__py_charge(PyObject* self, PyObject* args)
 		return NULL;
 	}
 
-	if (!PyBytes_Check(pyDatas) && !PyObject_TypeCheck(pyDatas, script::PyMemoryStream::getScriptType()))
+	if (!PyBytes_Check(pyDatas))
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::charge: byteDatas != bytes|BLOB!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::charge: byteDatas != bytes!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}
@@ -2301,24 +2369,16 @@ PyObject* Baseapp::__py_charge(PyObject* self, PyObject* args)
 
 	std::string datas;
 
-	if(!PyBytes_Check(pyDatas))
-	{
-		script::PyMemoryStream* pPyMemoryStream = static_cast<script::PyMemoryStream*>(pyDatas);
-		pPyMemoryStream->stream().readBlob(datas);
-	}
-	else
-	{
-		char *buffer;
-		Py_ssize_t length;
+	char *buffer;
+	Py_ssize_t length;
 
-		if(PyBytes_AsStringAndSize(pyDatas, &buffer, &length) < 0)
-		{
-			SCRIPT_ERROR_CHECK();
-			return NULL;
-		}
-
-		datas.assign(buffer, length);
+	if(PyBytes_AsStringAndSize(pyDatas, &buffer, &length) < 0)
+	{
+		SCRIPT_ERROR_CHECK();
+		return NULL;
 	}
+
+	datas.assign(buffer, length);
 
 	if(Baseapp::getSingleton().isShuttingdown())
 	{
@@ -2345,7 +2405,7 @@ void Baseapp::charge(std::string chargeID, DBID dbid, const std::string& datas, 
 		callbackID,
 		dbid));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 	(*pBundle).newMessage(DbmgrInterface::charge);
 	(*pBundle) << chargeID;
@@ -2358,7 +2418,7 @@ void Baseapp::charge(std::string chargeID, DBID dbid, const std::string& datas, 
 	if(pChannel == NULL)
 	{
 		ERROR_MSG("Baseapp::charge: not found dbmgr!\n");
-		Network::Bundle::ObjPool().reclaimObject(pBundle);
+		Network::Bundle::reclaimPoolObject(pBundle);
 		return;
 	}
 
@@ -2389,7 +2449,7 @@ void Baseapp::onChargeCB(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 	PyObject* pyOrder = PyUnicode_FromString(chargeID.c_str());
 	PyObject* pydbid = PyLong_FromUnsignedLongLong(dbid);
 	PyObject* pySuccess = PyBool_FromLong((retcode == SERVER_SUCCESS));
-	script::PyMemoryStream* pPyMemoryStream = new script::PyMemoryStream(datas);
+	PyObject* pyBytes = PyBytes_FromStringAndSize(datas.data(), datas.length());
 
 	if(callbackID > 0)
 	{
@@ -2400,7 +2460,7 @@ void Baseapp::onChargeCB(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 			SCOPED_PROFILE(SCRIPTCALL_PROFILE);
 			PyObject* pyResult = PyObject_CallFunction(pycallback.get(), 
 												const_cast<char*>("OOOO"), 
-												pyOrder, pydbid, pySuccess, static_cast<PyObject*>(pPyMemoryStream));
+												pyOrder, pydbid, pySuccess, pyBytes);
 
 			if(pyResult != NULL)
 				Py_DECREF(pyResult);
@@ -2419,7 +2479,7 @@ void Baseapp::onChargeCB(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 		PyObject* pyResult = PyObject_CallMethod(getEntryScript().get(), 
 										const_cast<char*>("onLoseChargeCB"), 
 										const_cast<char*>("OOOO"), 
-										pyOrder, pydbid, pySuccess, static_cast<PyObject*>(pPyMemoryStream));
+										pyOrder, pydbid, pySuccess, pyBytes);
 
 		if(pyResult != NULL)
 			Py_DECREF(pyResult);
@@ -2430,7 +2490,7 @@ void Baseapp::onChargeCB(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 	Py_DECREF(pyOrder);
 	Py_DECREF(pydbid);
 	Py_DECREF(pySuccess);
-	Py_DECREF(pPyMemoryStream);
+	Py_DECREF(pyBytes);
 }
 
 //-------------------------------------------------------------------------------------
@@ -2547,7 +2607,7 @@ void Baseapp::registerPendingLogin(Network::Channel* pChannel, KBEngine::MemoryS
 	s >> loginName >> accountName >> password >> entityID >> entityDBID >> flags >> deadline >> componentType;
 	s.readBlob(datas);
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(BaseappmgrInterface::onPendingAccountGetBaseappAddr);
 
 	(*pBundle) << loginName;
@@ -2590,7 +2650,7 @@ void Baseapp::loginBaseappFailed(Network::Channel* pChannel, std::string& accoun
 	}
 	else if(failedcode == SERVER_ERR_PASSWORD)
 	{
-		DEBUG_MSG(fmt::format("Baseapp::login: user[{}] password is error, login is failed!\n",
+		DEBUG_MSG(fmt::format("Baseapp::login: user[{}] password error, login is failed!\n",
 			accountName.c_str()));
 
 		failedcode = SERVER_ERR_NAME_PASSWORD;
@@ -2599,7 +2659,7 @@ void Baseapp::loginBaseappFailed(Network::Channel* pChannel, std::string& accoun
 	if(pChannel == NULL)
 		return;
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 
 	if(relogin)
 		(*pBundle).newMessage(ClientInterface::onReLoginBaseappFailed);
@@ -2747,7 +2807,7 @@ void Baseapp::loginBaseapp(Network::Channel* pChannel,
 	}
 	else
 	{
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		(*pBundle).newMessage(DbmgrInterface::queryAccount);
 
 		ENTITY_ID entityID = idClient_.alloc();
@@ -2826,7 +2886,7 @@ void Baseapp::reLoginBaseapp(Network::Channel* pChannel, std::string& accountNam
 	// proxy->onEntitiesEnabled();
 
 	/*
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(ClientInterface::onReLoginBaseappSuccessfully);
 	(*pBundle) << proxy->rndUUID();
 	pChannel->send(pBundle);
@@ -2842,7 +2902,7 @@ void Baseapp::kickChannel(Network::Channel* pChannel, SERVER_ERROR_CODE failedco
 	INFO_MSG(fmt::format("Baseapp::kickChannel: pChannel={}, failedcode={}, proxyID={}.\n",
 		pChannel->c_str(), failedcode, pChannel->proxyID()));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(ClientInterface::onKicked);
 	ClientInterface::onKickedArgs1::staticAddToBundle((*pBundle), failedcode);
 	pChannel->send(pBundle);
@@ -2938,7 +2998,7 @@ void Baseapp::onQueryAccountCBFromDbmgr(Network::Channel* pChannel, KBEngine::Me
 		createClientProxies(base);
 		
 		/*
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		(*pBundle).newMessage(DbmgrInterface::onAccountOnline);
 
 		DbmgrInterface::onAccountOnlineArgs3::staticAddToBundle((*pBundle), accountName, 
@@ -2958,6 +3018,8 @@ void Baseapp::onQueryAccountCBFromDbmgr(Network::Channel* pChannel, KBEngine::Me
 void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel, 
 												KBEngine::MemoryStream& s)
 {
+	AUTO_SCOPED_PROFILE("forwardMessageToClientFromCellapp");
+	
 	if(pChannel->isExternal())
 		return;
 	
@@ -2973,19 +3035,20 @@ void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel,
 			{
 				Network::MessageID fmsgid = 0;
 				s >> fmsgid;
+
 				Network::MessageHandler* pMessageHandler = ClientInterface::messageHandlers.find(fmsgid);
 				bool isprint = true;
 
 				if(pMessageHandler)
 				{
-					std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),	
-															Network::g_trace_packet_disables.end(),				
-																pMessageHandler->name);							
-																													
-					if(iter != Network::g_trace_packet_disables.end())												
-					{																								
-						isprint = false;																			
-					}																								
+					std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),
+															Network::g_trace_packet_disables.end(),
+																pMessageHandler->name);	
+
+					if(iter != Network::g_trace_packet_disables.end())
+					{
+						isprint = false;
+					}
 				}
 
 				if(isprint)
@@ -3017,31 +3080,32 @@ void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel,
 			{
 				Network::MessageID fmsgid = 0;
 				s >> fmsgid;
+
 				Network::MessageHandler* pMessageHandler = ClientInterface::messageHandlers.find(fmsgid);
 				bool isprint = true;
 
 				if(pMessageHandler)
 				{
-					std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),	
-															Network::g_trace_packet_disables.end(),				
-																pMessageHandler->name);							
-																													
-					if(iter != Network::g_trace_packet_disables.end())												
-					{																								
-						isprint = false;																			
-					}																								
+					std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),
+															Network::g_trace_packet_disables.end(),
+																pMessageHandler->name);
+
+					if(iter != Network::g_trace_packet_disables.end())
+					{
+						isprint = false;
+					}
 				}
 
 				if(isprint)
 				{
 					ERROR_MSG(fmt::format("Baseapp::forwardMessageToClientFromCellapp: "
-						"is error(not found clientMailbox)! entityID({}), {}(msgid={}).\n", 
+						"error(not found clientMailbox)! entityID({}), {}(msgid={}).\n", 
 						eid,(pMessageHandler == NULL ? "unknown" : pMessageHandler->name), fmsgid));
 				}
 				else
 				{
 					ERROR_MSG(fmt::format("Baseapp::forwardMessageToClientFromCellapp: "
-						"is error(not found clientMailbox)! entityID({}).\n",
+						"error(not found clientMailbox)! entityID({}).\n",
 						eid));
 				}
 			}
@@ -3049,7 +3113,7 @@ void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel,
 			{
 				/*
 				ERROR_MSG(fmt::format("Baseapp::forwardMessageToClientFromCellapp: "
-					"is error(not found clientMailbox)! entityID({}).\n",
+					"error(not found clientMailbox)! entityID({}).\n",
 					eid));
 				*/
 			}
@@ -3062,29 +3126,57 @@ void Baseapp::forwardMessageToClientFromCellapp(Network::Channel* pChannel,
 	if(s.length() <= 0)
 		return;
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
-	(*pBundle).append(s);
-	static_cast<Proxy*>(base)->sendToClient(pBundle);
-	//mailbox->postMail((*pBundle));
+	BaseMessagesForwardClientHandler* pBufferedSendToClientMessages = base->pBufferedSendToClientMessages();
 	
+	// 需要判断来源是否符合
+	if(pBufferedSendToClientMessages)
+	{
+		Components::ComponentInfos* cinfos = Components::getSingleton().findComponent(pChannel);
+		if (cinfos->cid != pBufferedSendToClientMessages->cellappID())
+			pBufferedSendToClientMessages = NULL;
+	}
+	
+	Network::Channel* pClientChannel = mailbox->getChannel();
+	Network::Bundle* pSendBundle = NULL;
+	
+	static Network::MessageHandler* pMessageHandler = NULL;
+
+	int rpos = s.rpos();
+	Network::MessageID fmsgid = 0;
+	s >> fmsgid;
+
+	if (!pMessageHandler || pMessageHandler->msgID != fmsgid)
+		pMessageHandler = ClientInterface::messageHandlers.find(fmsgid);
+
+	s.rpos(rpos);
+		
+	if (!pClientChannel || pBufferedSendToClientMessages)
+		pSendBundle = Network::Bundle::createPoolObject();
+	else
+		pSendBundle = pClientChannel->createSendBundle();
+
+	(*pSendBundle).append(s);
+	pSendBundle->pCurrMsgHandler(pMessageHandler);
+
+	if (!pBufferedSendToClientMessages)
+		static_cast<Proxy*>(base)->sendToClient(pSendBundle);
+	else
+		pBufferedSendToClientMessages->pushMessages(pSendBundle);
+
 	if(Network::g_trace_packet > 0 && s.length() >= sizeof(Network::MessageID))
 	{
-		Network::MessageID fmsgid = 0;
-		s >> fmsgid;
-		Network::MessageHandler* pMessageHandler = ClientInterface::messageHandlers.find(fmsgid);
 		bool isprint = true;
 
 		if(pMessageHandler)
 		{
-			(*pBundle).pCurrMsgHandler(pMessageHandler);
-			std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),	
-													Network::g_trace_packet_disables.end(),				
-														pMessageHandler->name);							
-																											
-			if(iter != Network::g_trace_packet_disables.end())												
-			{																								
-				isprint = false;																			
-			}																								
+			std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),
+													Network::g_trace_packet_disables.end(),
+														pMessageHandler->name);
+
+			if(iter != Network::g_trace_packet_disables.end())
+			{
+				isprint = false;
+			}
 		}
 
 		if(isprint)
@@ -3119,7 +3211,7 @@ void Baseapp::forwardMessageToCellappFromCellapp(Network::Channel* pChannel,
 	if(mailbox == NULL)
 	{
 		ERROR_MSG(fmt::format("Baseapp::forwardMessageToCellappFromCellapp: "
-			"is error(not found cellMailbox)! entityID={}.\n", 
+			"error(not found cellMailbox)! entityID={}.\n", 
 			eid));
 
 		s.done();
@@ -3129,28 +3221,35 @@ void Baseapp::forwardMessageToCellappFromCellapp(Network::Channel* pChannel,
 	if(s.length() <= 0)
 		return;
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
-	(*pBundle).append(s);
-	base->sendToCellapp(pBundle);
+	Network::Channel* pClientChannel = mailbox->getChannel();
+	Network::Bundle* pSendBundle = NULL;
+	
+	if(!pChannel)
+		pSendBundle = Network::Bundle::createPoolObject();
+	else
+		pSendBundle = pClientChannel->createSendBundle();
+	
+	(*pSendBundle).append(s);
+	base->sendToCellapp(pSendBundle);
 	
 	if(Network::g_trace_packet > 0 && s.length() >= sizeof(Network::MessageID))
 	{
 		Network::MessageID fmsgid = 0;
 		s >> fmsgid;
+
 		Network::MessageHandler* pMessageHandler = CellappInterface::messageHandlers.find(fmsgid);
 		bool isprint = true;
 
 		if(pMessageHandler)
 		{
-			(*pBundle).pCurrMsgHandler(pMessageHandler);
-			std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),	
-													Network::g_trace_packet_disables.end(),				
-														pMessageHandler->name);							
-																											
-			if(iter != Network::g_trace_packet_disables.end())												
-			{																								
-				isprint = false;																			
-			}																								
+			std::vector<std::string>::iterator iter = std::find(Network::g_trace_packet_disables.begin(),
+													Network::g_trace_packet_disables.end(),
+														pMessageHandler->name);
+
+			if(iter != Network::g_trace_packet_disables.end())
+			{
+				isprint = false;
+			}
 		}
 
 		if(isprint)
@@ -3190,9 +3289,6 @@ void Baseapp::onEntityMail(Network::Channel* pChannel, KBEngine::MemoryStream& s
 		return;
 	}
 	
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
-	Network::Bundle& bundle = *pBundle;
-	bool reclaim = true;
 
 	switch(mailtype)
 	{
@@ -3213,10 +3309,14 @@ void Baseapp::onEntityMail(Network::Channel* pChannel, KBEngine::MemoryStream& s
 					break;
 				}
 				
-				mailbox->newMail(bundle);
-				bundle.append(s);
-				mailbox->postMail(pBundle);
-				reclaim = false;
+				Network::Channel* pChannel = mailbox->getChannel();
+				if (pChannel)
+				{
+					Network::Bundle* pBundle = pChannel->createSendBundle();
+					mailbox->newMail(*pBundle);
+					pBundle->append(s);
+					pChannel->send(pBundle);
+				}
 			}
 			break;
 
@@ -3232,34 +3332,33 @@ void Baseapp::onEntityMail(Network::Channel* pChannel, KBEngine::MemoryStream& s
 					break;
 				}
 				
-				mailbox->newMail(bundle);
-				bundle.append(s);
-
-				if(Network::g_trace_packet > 0 && s.length() >= sizeof(ENTITY_METHOD_UID))
+				Network::Channel* pChannel = mailbox->getChannel();
+				if (pChannel)
 				{
-					ENTITY_METHOD_UID utype = 0;
-					s >> utype;
-					DEBUG_MSG(fmt::format("Baseapp::onEntityMail: onRemoteMethodCall(entityID={}, method={}).\n",
-						eid, utype));
+					Network::Bundle* pBundle = pChannel->createSendBundle();
+					mailbox->newMail(*pBundle);
+					pBundle->append(s);
+
+					if(Network::g_trace_packet > 0 && s.length() >= sizeof(ENTITY_METHOD_UID))
+					{
+						ENTITY_METHOD_UID utype = 0;
+						s >> utype;
+
+						DEBUG_MSG(fmt::format("Baseapp::onEntityMail: onRemoteMethodCall(entityID={}, method={}).\n",
+							eid, utype));
+					}
+
+					static_cast<Proxy*>(base)->sendToClient(pBundle);
 				}
-
-				s.done();
-
-				//mailbox->postMail(bundle);
-				static_cast<Proxy*>(base)->sendToClient(pBundle);
-				reclaim = false;
 			}
 			break;
 
 		default:
 			{
-				ERROR_MSG(fmt::format("Baseapp::onEntityMail: mailboxType {} is error! must a baseType. entityID={}.\n",
+				ERROR_MSG(fmt::format("Baseapp::onEntityMail: mailboxType {} error! must a baseType. entityID={}.\n",
 					mailtype, eid));
 			}
 	};
-
-	if(reclaim)
-		Network::Bundle::ObjPool().reclaimObject(pBundle);
 
 	s.done();
 }
@@ -3282,14 +3381,14 @@ void Baseapp::onRemoteCallCellMethodFromClient(Network::Channel* pChannel, KBEng
 
 	if(e == NULL || e->cellMailbox() == NULL)
 	{
-		ERROR_MSG(fmt::format("Baseapp::onRemoteCallCellMethodFromClient: {} {} has no cell.\n",
+		ERROR_MSG(fmt::format("Baseapp::onRemoteCallCellMethodFromClient: {} {} no cell.\n",
 			(e == NULL ? "unknown" : e->scriptName()), srcEntityID));
 		
 		s.done();
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(CellappInterface::onRemoteCallMethodFromClient);
 	(*pBundle) << srcEntityID;
 	(*pBundle).append(s);
@@ -3301,6 +3400,8 @@ void Baseapp::onRemoteCallCellMethodFromClient(Network::Channel* pChannel, KBEng
 //-------------------------------------------------------------------------------------
 void Baseapp::onUpdateDataFromClient(Network::Channel* pChannel, KBEngine::MemoryStream& s)
 {
+	AUTO_SCOPED_PROFILE("onUpdateDataFromClient");
+
 	ENTITY_ID srcEntityID = pChannel->proxyID();
 	if(srcEntityID <= 0)
 	{
@@ -3323,7 +3424,47 @@ void Baseapp::onUpdateDataFromClient(Network::Channel* pChannel, KBEngine::Memor
 
 	if(e == NULL || e->cellMailbox() == NULL)
 	{
-		ERROR_MSG(fmt::format("Baseapp::onUpdateDataFromClient: {} {} has no cell.\n",
+		ERROR_MSG(fmt::format("Baseapp::onUpdateDataFromClient: {} {} no cell.\n",
+			(e == NULL ? "unknown" : e->scriptName()), srcEntityID));
+		
+		s.done();
+		return;
+	}
+
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
+	(*pBundle).newMessage(CellappInterface::onUpdateDataFromClient);
+	(*pBundle) << srcEntityID;
+	(*pBundle).append(s);
+	
+	e->sendToCellapp(pBundle);
+	s.done();
+}
+
+void Baseapp::onUpdateDataFromClientForControlledEntity(Network::Channel* pChannel, KBEngine::MemoryStream& s)
+{
+	ENTITY_ID srcEntityID = pChannel->proxyID();
+	if(srcEntityID <= 0)
+	{
+		s.done();
+		return;
+	}
+	
+	static size_t datasize = (sizeof(int32) + sizeof(float) * 6 + sizeof(uint8) + sizeof(uint32));
+	if(s.length() <= 0 || s.length() != datasize)
+	{
+		ERROR_MSG(fmt::format("Baseapp::onUpdateDataFromClientForControlledEntity: invalid data, size({} != {}), srcEntityID={}.\n",
+			datasize, s.length(), srcEntityID));
+
+		s.done();
+		return;
+	}
+
+	KBEngine::Proxy* e = static_cast<KBEngine::Proxy*>
+			(KBEngine::Baseapp::getSingleton().findEntity(srcEntityID));	
+
+	if(e == NULL || e->cellMailbox() == NULL)
+	{
+		ERROR_MSG(fmt::format("Baseapp::onUpdateDataFromClientForControlledEntity: {} {} has no cell.\n",
 			(e == NULL ? "unknown" : e->scriptName()), srcEntityID));
 		
 		s.done();
@@ -3331,7 +3472,7 @@ void Baseapp::onUpdateDataFromClient(Network::Channel* pChannel, KBEngine::Memor
 	}
 
 	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
-	(*pBundle).newMessage(CellappInterface::onUpdateDataFromClient);
+	(*pBundle).newMessage(CellappInterface::onUpdateDataFromClientForControlledEntity);
 	(*pBundle) << srcEntityID;
 	(*pBundle).append(s);
 	
@@ -3421,6 +3562,10 @@ void Baseapp::onClientActiveTick(Network::Channel* pChannel)
 		return;
 
 	onAppActiveTick(pChannel, CLIENT_TYPE, 0);
+
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
+	pBundle->newMessage(ClientInterface::onAppActiveTickCB);
+	pChannel->send(pBundle);
 }
 
 //-------------------------------------------------------------------------------------
@@ -3438,7 +3583,7 @@ void Baseapp::onHello(Network::Channel* pChannel,
 						const std::string& scriptVerInfo,
 						const std::string& encryptedKey)
 {
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	
 	pBundle->newMessage(ClientInterface::onHelloCB);
 	(*pBundle) << KBEVersion::versionString();
@@ -3471,7 +3616,7 @@ void Baseapp::lookApp(Network::Channel* pChannel)
 
 	DEBUG_MSG(fmt::format("Baseapp::lookApp: {}\n", pChannel->c_str()));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	
 	(*pBundle) << g_componentType;
 	(*pBundle) << componentID_;
@@ -3722,7 +3867,7 @@ PyObject* Baseapp::__py_reloadScript(PyObject* self, PyObject* args)
 	{
 		if(PyArg_ParseTuple(args, "b", &fullReload) == -1)
 		{
-			PyErr_Format(PyExc_TypeError, "KBEngine::reloadScript(fullReload): args is error!");
+			PyErr_Format(PyExc_TypeError, "KBEngine::reloadScript(fullReload): args error!");
 			PyErr_PrintEx(0);
 			return 0;
 		}
@@ -3788,7 +3933,7 @@ PyObject* Baseapp::__py_deleteBaseByDBID(PyObject* self, PyObject* args)
 	{
 		if (PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback) == -1)
 		{
-			PyErr_Format(PyExc_TypeError, "KBEngine::deleteBaseByDBID: args is error!");
+			PyErr_Format(PyExc_TypeError, "KBEngine::deleteBaseByDBID: args error!");
 			PyErr_PrintEx(0);
 			return NULL;
 		}
@@ -3797,7 +3942,7 @@ PyObject* Baseapp::__py_deleteBaseByDBID(PyObject* self, PyObject* args)
 	{
 		if (PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName) == -1)
 		{
-			PyErr_Format(PyExc_TypeError, "KBEngine::deleteBaseByDBID: args is error!");
+			PyErr_Format(PyExc_TypeError, "KBEngine::deleteBaseByDBID: args error!");
 			PyErr_PrintEx(0);
 			return NULL;
 		}
@@ -3858,7 +4003,7 @@ PyObject* Baseapp::__py_deleteBaseByDBID(PyObject* self, PyObject* args)
 
 	CALLBACK_ID callbackID = Baseapp::getSingleton().callbackMgr().save(pycallback);
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(DbmgrInterface::deleteBaseByDBID);
 	(*pBundle) << (uint16)dbInterfaceIndex;
 	(*pBundle) << g_componentID;
@@ -3960,7 +4105,7 @@ PyObject* Baseapp::__py_lookUpBaseByDBID(PyObject* self, PyObject* args)
 	{
 		if (PyArg_ParseTuple(args, "s|K|O", &entityType, &dbid, &pycallback) == -1)
 		{
-			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpBaseByDBID: args is error!");
+			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpBaseByDBID: args error!");
 			PyErr_PrintEx(0);
 			return NULL;
 		}
@@ -3971,7 +4116,7 @@ PyObject* Baseapp::__py_lookUpBaseByDBID(PyObject* self, PyObject* args)
 
 		if (PyArg_ParseTuple(args, "s|K|O|O", &entityType, &dbid, &pycallback, &pyDBInterfaceName) == -1)
 		{
-			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpBaseByDBID: args is error!");
+			PyErr_Format(PyExc_TypeError, "KBEngine::lookUpBaseByDBID: args error!");
 			PyErr_PrintEx(0);
 			return NULL;
 		}
@@ -4036,7 +4181,7 @@ PyObject* Baseapp::__py_lookUpBaseByDBID(PyObject* self, PyObject* args)
 
 	CALLBACK_ID callbackID = Baseapp::getSingleton().callbackMgr().save(pycallback);
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(DbmgrInterface::lookUpBaseByDBID);
 	(*pBundle) << (uint16)dbInterfaceIndex;
 	(*pBundle) << g_componentID;
@@ -4154,7 +4299,7 @@ void Baseapp::reqAccountBindEmail(Network::Channel* pChannel, ENTITY_ID entityID
 	password = KBEngine::strutil::kbe_trim(password);
 	email = KBEngine::strutil::kbe_trim(email);
 
-	INFO_MSG(fmt::format("Baseapp::reqAccountBindEmail: {}({}) email={}!\n", accountName, entityID, email));
+	INFO_MSG(fmt::format("Baseapp::reqAccountBindEmail: accountName={}, entityID={}, email={}!\n", accountName, entityID, email));
 
 	Components::ComponentInfos* dbmgrinfos = Components::getSingleton().getDbmgr();
 	if(dbmgrinfos == NULL || dbmgrinfos->pChannel == NULL || dbmgrinfos->cid == 0)
@@ -4162,7 +4307,7 @@ void Baseapp::reqAccountBindEmail(Network::Channel* pChannel, ENTITY_ID entityID
 		ERROR_MSG(fmt::format("Baseapp::reqAccountBindEmail: accountName({}), not found dbmgr!\n", 
 			accountName));
 
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		(*pBundle).newMessage(ClientInterface::onReqAccountBindEmailCB);
 		SERVER_ERROR_CODE retcode = SERVER_ERR_SRV_NO_READY;
 		(*pBundle) << retcode;
@@ -4170,7 +4315,7 @@ void Baseapp::reqAccountBindEmail(Network::Channel* pChannel, ENTITY_ID entityID
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(DbmgrInterface::accountReqBindMail);
 	(*pBundle) << entityID << accountName << password << email;
 	dbmgrinfos->pChannel->send(pBundle);
@@ -4212,7 +4357,7 @@ void Baseapp::onReqAccountBindEmailCB(Network::Channel* pChannel, ENTITY_ID enti
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(ClientInterface::onReqAccountBindEmailCB);
 	(*pBundle) << failedcode;
 	base->clientMailbox()->getChannel()->send(pBundle);
@@ -4263,7 +4408,7 @@ void Baseapp::reqAccountNewPassword(Network::Channel* pChannel, ENTITY_ID entity
 		ERROR_MSG(fmt::format("Baseapp::reqAccountNewPassword: accountName({}), not found dbmgr!\n", 
 			accountName));
 
-		Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+		Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 		(*pBundle).newMessage(ClientInterface::onReqAccountNewPasswordCB);
 		SERVER_ERROR_CODE retcode = SERVER_ERR_SRV_NO_READY;
 		(*pBundle) << retcode;
@@ -4271,7 +4416,7 @@ void Baseapp::reqAccountNewPassword(Network::Channel* pChannel, ENTITY_ID entity
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(DbmgrInterface::accountNewPassword);
 	(*pBundle) << entityID << accountName << oldpassworld << newpassword;
 	dbmgrinfos->pChannel->send(pBundle);
@@ -4291,7 +4436,7 @@ void Baseapp::onReqAccountNewPasswordCB(Network::Channel* pChannel, ENTITY_ID en
 		return;
 	}
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	(*pBundle).newMessage(ClientInterface::onReqAccountBindEmailCB);
 	(*pBundle) << failedcode;
 	base->clientMailbox()->getChannel()->send(pBundle);
@@ -4302,7 +4447,7 @@ void Baseapp::onVersionNotMatch(Network::Channel* pChannel)
 {
 	INFO_MSG(fmt::format("Baseapp::onVersionNotMatch: {}.\n", pChannel->c_str()));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	pBundle->newMessage(ClientInterface::onVersionNotMatch);
 	(*pBundle) << KBEVersion::versionString();
 	pChannel->send(pBundle);
@@ -4313,7 +4458,7 @@ void Baseapp::onScriptVersionNotMatch(Network::Channel* pChannel)
 {
 	INFO_MSG(fmt::format("Baseapp::onScriptVersionNotMatch: {}.\n", pChannel->c_str()));
 
-	Network::Bundle* pBundle = Network::Bundle::ObjPool().createObject();
+	Network::Bundle* pBundle = Network::Bundle::createPoolObject();
 	pBundle->newMessage(ClientInterface::onScriptVersionNotMatch);
 	(*pBundle) << KBEVersion::scriptVersionString();
 	pChannel->send(pBundle);
@@ -4339,7 +4484,7 @@ PyObject* Baseapp::__py_setFlags(PyObject* self, PyObject* args)
 
 	if(PyArg_ParseTuple(args, "I", &flags) == -1)
 	{
-		PyErr_Format(PyExc_TypeError, "KBEngine::setFlags: args is error!");
+		PyErr_Format(PyExc_TypeError, "KBEngine::setFlags: args error!");
 		PyErr_PrintEx(0);
 		return NULL;
 	}

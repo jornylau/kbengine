@@ -38,6 +38,7 @@
 		<debug_type> 0 </debug_type>
 		<use_logfile> false </use_logfile>
 		<disables>
+			<item>Encrypted::packets</item>
 			<item>Baseappmgr::updateBaseapp</item>
 			<item>Baseappmgr::onBaseappInitProgress</item>
 			<item>Cellappmgr::updateCellapp</item>
@@ -253,9 +254,9 @@
 		-->
 		<InterfacesServiceAddr>
 			<!-- 如果enable为false则相关数据不转发到Interfaces进程 
-				注意：如果为true，dbmgr认为数据将由interfaces交给第三方平台处理，本地不再验证登陆密码
+				注意：如果为true，dbmgr认为数据将由interfaces交给第三方平台处理
 			-->
-			<enable> false		</enable>
+			<enable> true		</enable>
 			<host>	 localhost	</host>
 			<port>	 30099		</port>
 		</InterfacesServiceAddr>
@@ -711,6 +712,16 @@
 		-->
 		<externalPorts_min> 20099 </externalPorts_min>					<!-- Type: Integer -->
 		<externalPorts_max> 0 </externalPorts_max>						<!-- Type: Integer -->
+		
+		<!-- 服务组使用多台硬件组成网络，在某些网络环境由于路由器的设置不允许UDP广播造成跨物理机组网不成功时
+			可在此填入所有相关物理机的地址，引擎将会向具体的地址发送探测包来完成组网，
+			注意：如果指定了地址池引擎将不再发送全网广播包。
+			（When the network is composed of a plurality of hardware, the specific network address is detected.） 
+		-->
+		<addresses>
+			<!--<item> 127.0.0.1 </item>-->
+			<!--<item> 192.168.10.18 </item>-->
+		</addresses>
 	</machine>
 	
 	<bots>
@@ -730,6 +741,8 @@
 		<host> localhost </host>										<!-- Type: String -->
 		<port> 20013 </port>											<!-- Type: Integer -->
 		
+		<!-- 在Entity初始化时是否触发属性的set_*事件 -->
+		<isOnInitCallPropertysSetMethods> true </isOnInitCallPropertysSetMethods>
 		
 		<!-- 默认启动进程后自动添加这么多个机器人 
 			(After starting the process, automatically add some robots)
@@ -752,8 +765,9 @@
 			-->
 			<account_name_prefix>		bot_	</account_name_prefix>
 			
-			<!-- 机器人账号名称的后缀递增, 0使用随机数递增， 否则按照baseNum填写的数递增 
-				(The account name suffix, 0 is the use of random number, Otherwise, use baseNum and increasing.)
+			<!-- 机器人账号名称的后缀递增, 0使用随机数递增， 否则按照填写的数递增 
+				注意：想让机器人每次登陆使用相同的账号请设置固定的bots程序启动时的cid参数，具体参考服务器启动脚本，机器人账号由"前缀+cid+后缀组成"。
+				(The account name suffix, 0 is the use of random number, Otherwise, use account_name_suffix_inc and increasing.)
 			-->
 			<account_name_suffix_inc>	0		</account_name_suffix_inc><!-- Type: Integer -->
 		</account_infos>
@@ -785,7 +799,7 @@
 		<!-- 单个app(baseapp, cellapp, 等等..)进程上, 一个tick最多缓存的log数量
 			（The number of single-process(baseapp, cellapp, etc..), The number of log a tick buffer.） 
 		-->
-		<tick_max_buffered_logs> 0 </tick_max_buffered_logs>
+		<tick_max_buffered_logs> 131070 </tick_max_buffered_logs>
 
 		<!-- 单个app(baseapp, cellapp, 等等..)进程上, 一个tick同步给logger的log数量
 			（The number of single-process(baseapp, cellapp, etc..), A tick synchronization to the number of logger） 

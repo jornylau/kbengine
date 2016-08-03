@@ -105,6 +105,13 @@ struct DBInterfaceInfo
 		isPure = false;
 		db_numConnections = 5;
 		db_passwordEncrypt = true;
+
+		memset(name, 0, sizeof(name));
+		memset(db_type, 0, sizeof(db_type));
+		memset(db_ip, 0, sizeof(db_ip));
+		memset(db_username, 0, sizeof(db_username));
+		memset(db_password, 0, sizeof(db_password));
+		memset(db_name, 0, sizeof(db_name));
 	}
 
 	int index;
@@ -135,6 +142,8 @@ typedef struct EngineComponentInfo
 		debugDBMgr = false;
 
 		externalAddress[0] = '\0';
+
+		isOnInitCallPropertysSetMethods = true;
 	}
 
 	~EngineComponentInfo()
@@ -144,6 +153,8 @@ typedef struct EngineComponentInfo
 	uint32 port;											// 组件的运行后监听的端口
 	char ip[MAX_BUF];										// 组件的运行期ip地址
 
+	std::vector< std::string > machine_addresses;			// 配置中给出的所有的machine的地址
+	
 	char entryScriptFile[MAX_NAME];							// 组件的入口脚本文件
 	char dbAccountEntityScriptType[MAX_NAME];				// 数据库帐号脚本类别
 	float defaultAoIRadius;									// 配置在cellapp节点中的player的aoi半径大小
@@ -219,6 +230,8 @@ typedef struct EngineComponentInfo
 	uint16 http_cbport;										// 用户http回调接口，处理认证、密码重置等
 
 	bool debugDBMgr;										// debug模式下可输出读写操作信息
+
+	bool isOnInitCallPropertysSetMethods;					// 机器人(bots)专用：在Entity初始化时是否触发属性的set_*事件
 } ENGINE_COMPONENT_INFO;
 
 class ServerConfig : public Singleton<ServerConfig>
